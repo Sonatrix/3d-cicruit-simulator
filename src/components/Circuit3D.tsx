@@ -5,6 +5,7 @@ import { CircuitState } from '../types';
 import { createCircuitPath } from '../utils/circuitCurve';
 import { getResistorBands } from '../utils/resistorBands';
 import { createLabelSprite } from '../utils/labelSprite';
+import { formatVoltage, formatResistance, formatCurrent, formatPower } from '../utils/unitFormatting';
 
 interface Circuit3DProps {
   circuitState: CircuitState;
@@ -41,6 +42,17 @@ export default function Circuit3D({
     resistorLabel: ReturnType<typeof createLabelSprite>;
     batteryAnchorMat: THREE.MeshStandardMaterial;
     resistorAnchorMat: THREE.MeshStandardMaterial;
+    batteryPin?: THREE.Object3D;
+    resistorPin?: THREE.Object3D;
+    // Optional LED bulb current flow indicator
+    ledBulbGroup: THREE.Group;
+    ledFilamentMat: THREE.MeshStandardMaterial;
+    ledDomeMat: THREE.MeshPhysicalMaterial;
+    ledHaloMat: THREE.MeshBasicMaterial;
+    ledPointLight: THREE.PointLight;
+    ledLabel: ReturnType<typeof createLabelSprite>;
+    ledPin?: THREE.Object3D;
+    ledAnchorMat: THREE.MeshStandardMaterial;
   } | null>(null);
 
   useEffect(() => {
@@ -466,11 +478,166 @@ export default function Circuit3D({
     };
 
     // We will update arrow orientations dynamically based on flowDirection
-    flowDirectionArrows.add(createArrow([5.0, 0.6, 0], 0)); // Right side
+    flowDirectionArrows.add(createArrow([5.0, 0.6, 1.4], 0)); // Right side (offset along Z to frame the LED bulb)
     flowDirectionArrows.add(createArrow([-5.0, 0.6, 0], Math.PI)); // Left side
     flowDirectionArrows.add(createArrow([0, 0.6, -3], -Math.PI / 2)); // Top side
     flowDirectionArrows.add(createArrow([0, 0.6, 3], Math.PI / 2)); // Bottom side
     scene.add(flowDirectionArrows);
+
+    // --- 8.5. OPTIONAL LED BULB LOAD (CURRENT FLOW INDICATOR) AT (5.0, 0, 0) ---
+    const ledBulbGroup = new THREE.Group();
+    ledBulbGroup.position.set(5.0, 0, 0);
+
+    // Socket base collar (metal socket resting on pedestal at Y = 0.25)
+    const socketBaseGeo = new THREE.CylinderGeometry(0.36, 0.44, 0.35, 24);
+    const ledSocketMat = new THREE.MeshStandardMaterial({
+      color: '#334155',
+      metalness: 0.85,
+      roughness: 0.25,
+    });
+    const socketBase = new THREE.Mesh(socketBaseGeo, ledSocketMat);
+    socketBase.position.set(0, 0.175, 0);
+    socketBase.castShadow = true;
+    ledBulbGroup.add(socketBase);
+
+    // Ceramic white insulator ring
+    const ceramicRingGeo = new THREE.CylinderGeometry(0.32, 0.36, 0.08, 24);
+    const ceramicMat = new THREE.MeshStandardMaterial({
+      color: '#f1f5f9',
+      roughness: 0.2,
+      metalness: 0.1,
+    });
+    const ceramicRing = new THREE.Mesh(ceramicRingGeo, ceramicMat);
+    ceramicRing.position.set(0, 0.39, 0);
+    ledBulbGroup.add(ceramicRing);
+
+    // Brass screw terminals where the wire clamps to socket
+    const termGeo = new THREE.BoxGeometry(0.16, 0.16, 0.22);
+    const termMat = new THREE.MeshStandardMaterial({
+      color: '#d97706',
+      metalness: 0.9,
+      roughness: 0.25,
+    });
+    const termFront = new THREE.Mesh(termGeo, termMat);
+    termFront.position.set(0, 0.6, 0.35);
+    ledBulbGroup.add(termFront);
+    const termBack = new THREE.Mesh(termGeo, termMat);
+    termBack.position.set(0, 0.6, -0.35);
+    ledBulbGroup.add(termBack);
+
+    // Internal silver lead posts (Cathode & Anode)
+    const ledPostGeo = new THREE.CylinderGeometry(0.018, 0.018, 0.32, 12);
+    const ledPostMat = new THREE.MeshStandardMaterial({
+      color: '#94a3b8',
+      metalness: 0.95,
+      roughness: 0.15,
+    });
+    const cathodeLead = new THREE.Mesh(ledPostGeo, ledPostMat);
+    cathodeLead.position.set(-0.06, 0.58, 0);
+    ledBulbGroup.add(cathodeLead);
+
+    const anodeLead = new THREE.Mesh(ledPostGeo, ledPostMat);
+    anodeLead.position.set(0.06, 0.54, 0);
+    ledBulbGroup.add(anodeLead);
+
+    // Parabolic reflector cup / anvil
+    const cupGeo = new THREE.CylinderGeometry(0.11, 0.03, 0.08, 16);
+    const cupMat = new THREE.MeshStandardMaterial({
+      color: '#cbd5e1',
+      metalness: 0.98,
+      roughness: 0.1,
+    });
+    const cupMesh = new THREE.Mesh(cupGeo, cupMat);
+    cupMesh.position.set(-0.06, 0.72, 0);
+    ledBulbGroup.add(cupMesh);
+
+    // Glowing LED Semiconductor Die / Filament bridge
+    const filamentGeo = new THREE.BoxGeometry(0.08, 0.05, 0.08);
+    const ledFilamentMat = new THREE.MeshStandardMaterial({
+      color: '#fef08a',
+      emissive: '#f59e0b',
+      emissiveIntensity: 1.8,
+      roughness: 0.1,
+      metalness: 0.1,
+    });
+    const filamentMesh = new THREE.Mesh(filamentGeo, ledFilamentMat);
+    filamentMesh.position.set(-0.06, 0.76, 0);
+    ledBulbGroup.add(filamentMesh);
+
+    // Volumetric radial glow halo sphere (additive blending)
+    const haloGeo = new THREE.SphereGeometry(0.52, 16, 16);
+    const ledHaloMat = new THREE.MeshBasicMaterial({
+      color: '#fbbf24',
+      transparent: true,
+      opacity: 0.35,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const haloMesh = new THREE.Mesh(haloGeo, ledHaloMat);
+    haloMesh.position.set(0, 0.78, 0);
+    ledBulbGroup.add(haloMesh);
+
+    // Outer Glass Bulb Dome
+    // Lower tapered glass neck
+    const glassNeckGeo = new THREE.CylinderGeometry(0.24, 0.31, 0.22, 24);
+    const ledDomeMat = new THREE.MeshPhysicalMaterial({
+      color: '#fefce8',
+      transmission: 0.88,
+      opacity: 0.92,
+      transparent: true,
+      roughness: 0.08,
+      metalness: 0.05,
+      ior: 1.52,
+      thickness: 0.35,
+      depthWrite: false,
+    });
+    const glassNeck = new THREE.Mesh(glassNeckGeo, ledDomeMat);
+    glassNeck.position.set(0, 0.54, 0);
+    ledBulbGroup.add(glassNeck);
+
+    // Upper glass sphere dome
+    const glassDomeGeo = new THREE.SphereGeometry(0.34, 24, 24);
+    const glassDome = new THREE.Mesh(glassDomeGeo, ledDomeMat);
+    glassDome.position.set(0, 0.75, 0);
+    ledBulbGroup.add(glassDome);
+
+    // Add bulb group to scene
+    scene.add(ledBulbGroup);
+
+    // Dynamic point light originating from inside the bulb dome
+    const ledPointLight = new THREE.PointLight('#f59e0b', 0.8, 5.0);
+    ledPointLight.position.set(5.0, 0.78, 0);
+    scene.add(ledPointLight);
+
+    // 3D Billboard label for LED bulb
+    const initialI = stateRef.current.current;
+    const initialUnit = stateRef.current.unitNotation;
+    const ledLabel = createLabelSprite({
+      title: '💡 LED BULB (LOAD)',
+      value: `${formatCurrent(initialI, initialUnit).full} • Active`,
+      subtext: 'Current Indicator • Glowing',
+      primaryColor: '#ffffff',
+      accentColor: '#fbbf24',
+      borderColor: 'rgba(251, 191, 36, 0.8)',
+      glowColor: 'rgba(245, 158, 11, 0.45)',
+    });
+    ledLabel.sprite.position.set(5.0, 1.85, 0);
+    scene.add(ledLabel.sprite);
+
+    // Vertical anchor stem geometry for billboard 3D labels
+    const pinGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.45, 12);
+
+    // LED Anchor Pin (vertical stem)
+    const ledAnchorMat = new THREE.MeshStandardMaterial({
+      color: '#fbbf24',
+      emissive: '#d97706',
+      emissiveIntensity: 0.8,
+      metalness: 0.8,
+      roughness: 0.2,
+    });
+    const ledPin = new THREE.Mesh(pinGeo, ledAnchorMat);
+    ledPin.position.set(5.0, 1.15, 0);
+    scene.add(ledPin);
 
     // --- 9. FLOATING 3D LABELS & STEMS ABOVE BATTERY & RESISTOR ---
     // Battery Label: Positioned at (0, 1.85, 3)
@@ -488,7 +655,6 @@ export default function Circuit3D({
     scene.add(batteryLabel.sprite);
 
     // Battery Anchor Pin (vertical stem)
-    const pinGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.45, 12);
     const batteryAnchorMat = new THREE.MeshStandardMaterial({
       color: '#38bdf8',
       emissive: '#0284c7',
@@ -544,8 +710,18 @@ export default function Circuit3D({
       flowDirectionArrows,
       batteryLabel,
       resistorLabel,
+      batteryPin,
+      resistorPin,
       batteryAnchorMat,
       resistorAnchorMat,
+      ledBulbGroup,
+      ledFilamentMat,
+      ledDomeMat,
+      ledHaloMat,
+      ledPointLight,
+      ledLabel,
+      ledPin,
+      ledAnchorMat,
     };
 
     // --- 9. ANIMATION LOOP ---
@@ -625,7 +801,7 @@ export default function Circuit3D({
       }
 
       // Update heat wave particles above resistor
-      if (heatParticles) {
+      if (heatParticles && st.showFieldEffects) {
         const positions = heatParticles.geometry.attributes.position.array as Float32Array;
         const heatMat = heatParticles.material as THREE.PointsMaterial;
         // Thermal opacity scales with resistance & power
@@ -677,6 +853,7 @@ export default function Circuit3D({
       controls.dispose();
       batteryLabel.dispose();
       resistorLabel.dispose();
+      ledLabel.dispose();
       renderer.dispose();
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
@@ -699,9 +876,20 @@ export default function Circuit3D({
       batteryLabel,
       resistorLabel,
       resistorAnchorMat,
+      batteryPin,
+      resistorPin,
+      particlesMesh,
+      heatParticles,
+      ledBulbGroup,
+      ledFilamentMat,
+      ledHaloMat,
+      ledPointLight,
+      ledLabel,
+      ledPin,
+      ledAnchorMat,
     } = refs;
 
-    const { voltage, resistance, current, power, flowDirection } = circuitState;
+    const { voltage, resistance, current, power, flowDirection, unitNotation } = circuitState;
 
     // 1. UPDATE RESISTOR VISUALS (React to resistance & thermal heating)
     // Requirement 4: "The Resistor block should visually react to resistance (e.g., color intensity shift or thermal glow as resistance increases)."
@@ -793,10 +981,15 @@ export default function Circuit3D({
     });
 
     // 4. UPDATE FLOATING 3D TEXT LABELS
+    const notation = circuitState.unitNotation;
+    const vFormatted = formatVoltage(voltage, notation);
+    const rFormatted = formatResistance(resistance, notation);
+    const pFormatted = formatPower(power, notation);
+
     // Battery Label: Updates with current voltage
     batteryLabel.updateText({
       title: '⚡ DC SOURCE (V)',
-      value: `${voltage.toFixed(1)} V`,
+      value: vFormatted.full,
       subtext: `${activeLeds}/12 V Cells Active (${((voltage / 12) * 100).toFixed(0)}% EMF)`,
       primaryColor: '#ffffff',
       accentColor: '#38bdf8',
@@ -805,15 +998,14 @@ export default function Circuit3D({
     });
 
     // Resistor Label: Updates with current resistance and thermal status
-    const heatText = power < 1 ? `${(power * 1000).toFixed(0)} mW` : `${power.toFixed(1)} W`;
     const tempState = rFactor > 0.65 ? 'Hot Incandescent' : rFactor > 0.3 ? 'Warm Thermal' : 'Cool Ceramic';
     const rAccentHex = rFactor > 0.65 ? '#ef4444' : rFactor > 0.3 ? '#f97316' : '#d97706';
     const rGlowHex = rFactor > 0.65 ? 'rgba(239, 68, 68, 0.65)' : 'rgba(245, 158, 11, 0.5)';
 
     resistorLabel.updateText({
       title: '🔥 RESISTOR (R)',
-      value: `${resistance} Ω`,
-      subtext: `P = ${heatText} • ${tempState}`,
+      value: rFormatted.full,
+      subtext: `P = ${pFormatted.full} • ${tempState}`,
       primaryColor: '#ffffff',
       accentColor: rAccentHex,
       borderColor: rAccentHex,
@@ -823,6 +1015,134 @@ export default function Circuit3D({
     resistorAnchorMat.color.set(rAccentHex);
     resistorAnchorMat.emissive.set(rAccentHex);
     resistorAnchorMat.emissiveIntensity = 0.5 + rFactor * 1.5;
+
+    // 4.5. UPDATE LED BULB VISUALS (React to physical current flow I)
+    const curFormatted = formatCurrent(current, unitNotation);
+    const isConducting = !circuitState.isPaused && current > 0.0001;
+    const cNorm = Math.min(1.0, current / 2.5); // Saturates near ~2.5A
+    const brightnessPct = isConducting
+      ? Math.round(Math.min(100, Math.max(6, (current / 2.0) * 100)))
+      : 0;
+    const lumens = isConducting ? Math.round(Math.min(1200, current * 220)) : 0;
+
+    // Color theme configuration
+    const colorTheme = circuitState.ledBulbColor || 'amber';
+    let ledColorHex = '#fbbf24';
+    let ledEmissiveHex = '#f59e0b';
+    let ledLightHex = '#f59e0b';
+    let ledGlowHex = 'rgba(245, 158, 11, 0.5)';
+
+    if (colorTheme === 'emerald') {
+      ledColorHex = '#34d399';
+      ledEmissiveHex = '#10b981';
+      ledLightHex = '#10b981';
+      ledGlowHex = 'rgba(16, 185, 129, 0.5)';
+    } else if (colorTheme === 'cyan') {
+      ledColorHex = '#38bdf8';
+      ledEmissiveHex = '#06b6d4';
+      ledLightHex = '#06b6d4';
+      ledGlowHex = 'rgba(6, 182, 212, 0.5)';
+    } else if (colorTheme === 'ruby') {
+      ledColorHex = '#f87171';
+      ledEmissiveHex = '#ef4444';
+      ledLightHex = '#ef4444';
+      ledGlowHex = 'rgba(239, 68, 68, 0.5)';
+    }
+
+    if (isConducting) {
+      ledFilamentMat.color.set(ledColorHex);
+      ledFilamentMat.emissive.set(ledEmissiveHex);
+      ledFilamentMat.emissiveIntensity = 0.8 + cNorm * 4.2;
+
+      ledHaloMat.color.set(ledColorHex);
+      ledHaloMat.opacity = 0.12 + cNorm * 0.68;
+
+      ledPointLight.color.set(ledLightHex);
+      ledPointLight.intensity = 0.5 + cNorm * 5.2;
+      ledPointLight.distance = 3.2 + cNorm * 4.8;
+
+      ledAnchorMat.color.set(ledColorHex);
+      ledAnchorMat.emissive.set(ledEmissiveHex);
+      ledAnchorMat.emissiveIntensity = 0.5 + cNorm * 1.5;
+
+      const flowStateDesc =
+        current > 2.0
+          ? 'High Current • Intense Glow'
+          : current > 0.5
+          ? 'Steady Current • Radiant Flow'
+          : 'Low Current • Faint Ember';
+
+      ledLabel.updateText({
+        title: '💡 LED BULB (LOAD)',
+        value: `${curFormatted.full} • ${brightnessPct}% Glow`,
+        subtext: `~${lumens} lm • ${flowStateDesc}`,
+        primaryColor: '#ffffff',
+        accentColor: ledColorHex,
+        borderColor: ledColorHex,
+        glowColor: ledGlowHex,
+      });
+    } else {
+      // Cold state (circuit paused or zero current)
+      ledFilamentMat.color.set('#64748b');
+      ledFilamentMat.emissive.set('#334155');
+      ledFilamentMat.emissiveIntensity = 0.05;
+
+      ledHaloMat.opacity = 0;
+      ledPointLight.intensity = 0;
+
+      ledAnchorMat.color.set('#64748b');
+      ledAnchorMat.emissive.set('#334155');
+      ledAnchorMat.emissiveIntensity = 0.1;
+
+      ledLabel.updateText({
+        title: '💡 LED BULB (LOAD)',
+        value: 'OFF (0% Flow)',
+        subtext: circuitState.isPaused ? 'Simulation Paused' : 'Zero Current Flow',
+        primaryColor: '#94a3b8',
+        accentColor: '#64748b',
+        borderColor: 'rgba(100, 116, 139, 0.5)',
+        glowColor: 'transparent',
+      });
+    }
+
+    // 5. UPDATE COMPONENT VISIBILITY FLAGS
+    const show3DLabels = circuitState.show3DLabels;
+    const showBulb = Boolean(circuitState.showLedBulb);
+
+    if (ledBulbGroup) {
+      ledBulbGroup.visible = showBulb;
+    }
+    if (ledPointLight) {
+      ledPointLight.visible = showBulb && isConducting;
+    }
+    if (ledLabel?.sprite) {
+      ledLabel.sprite.visible = showBulb && show3DLabels;
+    }
+    if (ledPin) {
+      ledPin.visible = showBulb && show3DLabels;
+    }
+
+    if (batteryLabel?.sprite) {
+      batteryLabel.sprite.visible = show3DLabels;
+    }
+    if (resistorLabel?.sprite) {
+      resistorLabel.sprite.visible = show3DLabels;
+    }
+    if (batteryPin) {
+      batteryPin.visible = show3DLabels;
+    }
+    if (resistorPin) {
+      resistorPin.visible = show3DLabels;
+    }
+    if (particlesMesh) {
+      particlesMesh.visible = circuitState.showParticles;
+    }
+    if (flowDirectionArrows) {
+      flowDirectionArrows.visible = circuitState.showWireArrows;
+    }
+    if (heatParticles) {
+      heatParticles.visible = circuitState.showFieldEffects;
+    }
   }, [circuitState]);
 
   return (

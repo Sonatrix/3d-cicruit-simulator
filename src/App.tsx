@@ -19,18 +19,72 @@ export default function App() {
     const v = 5;
     const r = 10;
     const i = v / r;
+
+    // Load saved preferences if available
+    let savedVisibility = {
+      showPowerEquation: true,
+      showMetricsHUD: true,
+      showOscilloscope: true,
+      showPresets: true,
+      show3DLabels: true,
+      showParticles: true,
+      showFieldEffects: true,
+      showWireArrows: true,
+      showLedBulb: true,
+    };
+    try {
+      const stored = localStorage.getItem('circuit_display_visibility');
+      if (stored) {
+        savedVisibility = { ...savedVisibility, ...JSON.parse(stored) };
+      }
+    } catch {
+      // ignore JSON error
+    }
+
     return {
       voltage: v,
       resistance: r,
       current: i,
       power: v * i,
       flowDirection: 'electron',
+      unitNotation: 'engineering',
       isPaused: false,
       speedScale: 1,
-      showFieldEffects: true,
       audioEnabled: true,
+      ledBulbColor: 'amber',
+      ...savedVisibility,
     };
   });
+
+  // Save visibility preferences on change
+  useEffect(() => {
+    try {
+      const prefs = {
+        showPowerEquation: circuitState.showPowerEquation,
+        showMetricsHUD: circuitState.showMetricsHUD,
+        showOscilloscope: circuitState.showOscilloscope,
+        showPresets: circuitState.showPresets,
+        show3DLabels: circuitState.show3DLabels,
+        showParticles: circuitState.showParticles,
+        showFieldEffects: circuitState.showFieldEffects,
+        showWireArrows: circuitState.showWireArrows,
+        showLedBulb: circuitState.showLedBulb,
+      };
+      localStorage.setItem('circuit_display_visibility', JSON.stringify(prefs));
+    } catch {
+      // ignore
+    }
+  }, [
+    circuitState.showPowerEquation,
+    circuitState.showMetricsHUD,
+    circuitState.showOscilloscope,
+    circuitState.showPresets,
+    circuitState.show3DLabels,
+    circuitState.showParticles,
+    circuitState.showFieldEffects,
+    circuitState.showWireArrows,
+    circuitState.showLedBulb,
+  ]);
 
   const [autoRotate, setAutoRotate] = useState<boolean>(false);
   const [isGuideOpen, setIsGuideOpen] = useState<boolean>(false);
